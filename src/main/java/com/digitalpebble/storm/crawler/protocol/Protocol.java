@@ -20,6 +20,7 @@ import java.util.Map;
 
 import backtype.storm.Config;
 import crawlercommons.robots.BaseRobotRules;
+import org.apache.storm.guava.util.concurrent.ListenableFuture;
 
 public interface Protocol {
 
@@ -37,7 +38,7 @@ public interface Protocol {
      * @return the content and optional metadata fetched via this protocol
      * @throws Exception
      */
-    public ProtocolResponse getProtocolOutput(String url, Map<String, String[]> metadata) throws Exception;
+    public ListenableFuture<ProtocolResponse> getProtocolOutput(String url, Map<String, String[]> metadata) throws Exception;
 
-    public BaseRobotRules getRobotRules(String url);
+    public ListenableFuture<BaseRobotRules> getRobotRules(String url);
 }

@@ -442,7 +442,7 @@ public class FetcherBolt extends BaseRichBolt {
                                 "No protocol implementation found for "
                                         + fit.url);
 
-                    BaseRobotRules rules = protocol.getRobotRules(fit.url);
+                    BaseRobotRules rules = protocol.getRobotRules(fit.url).get();
                     if (!rules.isAllowed(fit.u.toString())) {
 
                         LOG.info("Denied by robots.txt: {}", fit.url);
@@ -487,7 +487,7 @@ public class FetcherBolt extends BaseRichBolt {
                     asap = false;
 
                     ProtocolResponse response = protocol.getProtocolOutput(
-                            fit.url, metadata);
+                            fit.url, metadata).get();
 
                     LOG.info("[Fetcher #{}] Fetched {} with status {}",
                             taskIndex, fit.url, response.getStatusCode());

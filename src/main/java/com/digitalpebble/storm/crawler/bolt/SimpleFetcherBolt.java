@@ -172,7 +172,7 @@ public class SimpleFetcherBolt extends BaseRichBolt {
         try {
             Protocol protocol = protocolFactory.getProtocol(url);
 
-            BaseRobotRules rules = protocol.getRobotRules(urlString);
+            BaseRobotRules rules = protocol.getRobotRules(urlString).get();
             if (!rules.isAllowed(urlString)) {
                 LOG.info("Denied by robots.txt: {}", urlString);
 
@@ -191,7 +191,7 @@ public class SimpleFetcherBolt extends BaseRichBolt {
             }
 
             ProtocolResponse response = protocol.getProtocolOutput(urlString,
-                    metadata);
+                    metadata).get();
 
             LOG.info("[Fetcher #{}] Fetched {} with status {}", taskIndex,
                     urlString, response.getStatusCode());

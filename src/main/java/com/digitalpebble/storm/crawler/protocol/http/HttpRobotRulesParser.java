@@ -20,6 +20,7 @@ package com.digitalpebble.storm.crawler.protocol.http;
 import java.net.URL;
 import java.util.Collections;
 
+import org.apache.storm.guava.util.concurrent.ListenableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -103,7 +104,7 @@ public class HttpRobotRulesParser extends RobotRulesParser {
             try {
                 ProtocolResponse response = http.getProtocolOutput(new URL(url,
                         "/robots.txt").toString(), Collections
-                        .<String, String[]> emptyMap());
+                        .<String, String[]> emptyMap()).get();
 
                 // try one level of redirection ?
                 if (response.getStatusCode() == 301
@@ -125,7 +126,7 @@ public class HttpRobotRulesParser extends RobotRulesParser {
                             redir = new URL(redirection);
                         }
                         response = http.getProtocolOutput(redir.toString(),
-                                Collections.<String, String[]> emptyMap());
+                                Collections.<String, String[]> emptyMap()).get();
                     }
                 }
 

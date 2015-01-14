@@ -25,6 +25,8 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.storm.guava.util.concurrent.Futures;
+import org.apache.storm.guava.util.concurrent.ListenableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -200,7 +202,7 @@ public class HttpProtocol implements Protocol {
         return this.conf;
     }
 
-    public ProtocolResponse getProtocolOutput(String urlString, Map<String, String[]> knownMetadata)
+    public ListenableFuture<ProtocolResponse> getProtocolOutput(String urlString, Map<String, String[]> knownMetadata)
             throws Exception {
 
         URL u = new URL(urlString);
@@ -221,7 +223,7 @@ public class HttpProtocol implements Protocol {
         int code = response.getCode();
         byte[] content = response.getContent();
 
-        return new ProtocolResponse(content, code, metadata);
+        return Futures.immediateFuture(new ProtocolResponse(content, code, metadata));
     }
 
     public String getProxyHost() {
@@ -386,7 +388,7 @@ public class HttpProtocol implements Protocol {
     }
 
     @Override
-    public BaseRobotRules getRobotRules(String url) {
-        return robots.getRobotRulesSet(this, url);
+    public ListenableFuture<BaseRobotRules> getRobotRules(String url) {
+        return Futures.immediateFuture(robots.getRobotRulesSet(this, url));
     }
 }
