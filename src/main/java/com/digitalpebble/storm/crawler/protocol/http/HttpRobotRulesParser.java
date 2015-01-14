@@ -17,10 +17,16 @@
 
 package com.digitalpebble.storm.crawler.protocol.http;
 
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Collections;
 
+import com.digitalpebble.storm.crawler.protocol.RobotRules;
+import com.digitalpebble.storm.crawler.util.VerboseRunnable;
+import org.apache.storm.guava.util.concurrent.Futures;
 import org.apache.storm.guava.util.concurrent.ListenableFuture;
+import org.apache.storm.guava.util.concurrent.MoreExecutors;
+import org.apache.storm.guava.util.concurrent.SettableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,6 +82,55 @@ public class HttpRobotRulesParser extends RobotRulesParser {
         String cacheKey = protocol + ":" + host + ":" + port;
         return cacheKey;
     }
+    
+    
+    private ListenableFuture<ProtocolResponse> fetchRobotsTxt(Protocol http, final URL url) throws Exception {
+        return http.getProtocolOutput(new URL(url,
+                "/robots.txt").toString(), Collections
+                .<String, String[]>emptyMap());
+        
+        // TODO bring back redirection logic:
+
+//                    // try one level of redirection ?
+//                    if (response.getStatusCode() == 301
+//                            || response.getStatusCode() == 302) {
+//                        String redirection = KeyValues.getValue("Location",
+//                                response.getMetadata());
+//                        if (redirection == null) {
+//                            // some versions of MS IIS are known to mangle this
+//                            // header
+//                            redirection = KeyValues.getValue("location",
+//                                    response.getMetadata());
+//                        }
+//                        if (redirection != null) {
+//                            URL redir;
+//                            if (!redirection.startsWith("http")) {
+//                                // RFC says it should be absolute, but apparently it
+//                                // isn't
+//                                redir = new URL(url, redirection);
+//                            } else {
+//                                redir = new URL(redirection);
+//                            }
+//                            ListenableFuture<ProtocolResponse> redirectResponseFuture = http.getProtocolOutput(redir.toString(),
+//                                    Collections.<String, String[]>emptyMap());
+//                            redirectResponseFuture.addListener(new VerboseRunnable() {
+//                                @Override
+//                                protected void doRun() throws Exception {
+//                                    throw new AssertionError("not implemented");
+//                                }
+//                            }, MoreExecutors.sameThreadExecutor());
+//                        }
+//                    }
+//
+//
+//                } catch (Exception e) {
+//                    LOG.info("Couldn't get robots.txt for {} : {}", url,
+//                            e.toString());
+//                    ticket.set(EMPTY_RULES);
+//                }
+//            }
+
+    }
 
     /**
      * Get the rules from robots.txt which applies for the given {@code url}.
@@ -91,75 +146,63 @@ public class HttpRobotRulesParser extends RobotRulesParser {
      * 
      * @return {@link BaseRobotRules} holding the rules from robots.txt
      */
-    public BaseRobotRules getRobotRulesSet(Protocol http, URL url) {
+    public ListenableFuture<BaseRobotRules> getRobotRulesSet(final Protocol http, final URL url) {
 
-        String cacheKey = getCacheKey(url);
+        final String cacheKey = getCacheKey(url);
         BaseRobotRules robotRules = CACHE.get(cacheKey);
 
         boolean cacheRule = true;
 
         if (robotRules == null) { // cache miss
-            URL redir = null;
+            final SettableFuture<BaseRobotRules> ret = SettableFuture.create();
+            
             LOG.trace("cache miss {}", url);
             try {
-                ProtocolResponse response = http.getProtocolOutput(new URL(url,
-                        "/robots.txt").toString(), Collections
-                        .<String, String[]> emptyMap()).get();
+                final ListenableFuture<ProtocolResponse> robotTxtResponse = fetchRobotsTxt(http, url);
 
-                // try one level of redirection ?
-                if (response.getStatusCode() == 301
-                        || response.getStatusCode() == 302) {
-                    String redirection = KeyValues.getValue("Location",
-                            response.getMetadata());
-                    if (redirection == null) {
-                        // some versions of MS IIS are known to mangle this
-                        // header
-                        redirection = KeyValues.getValue("location",
-                                response.getMetadata());
-                    }
-                    if (redirection != null) {
-                        if (!redirection.startsWith("http")) {
-                            // RFC says it should be absolute, but apparently it
-                            // isn't
-                            redir = new URL(url, redirection);
+                robotTxtResponse.addListener(new VerboseRunnable() {
+                    @Override
+                    protected void doRun() throws Exception {
+                        // Returns immediately
+                        ProtocolResponse response = robotTxtResponse.get();
+
+                        BaseRobotRules robotRules;
+                        boolean cacheRule = true;
+
+                        if (response.getStatusCode() == 200) // found rules: parse them
+                            robotRules = parseRules(
+                                    url.toString(),
+                                    response.getContent(),
+                                    KeyValues.getValue("Content-Type",
+                                            response.getMetadata()), agentNames);
+
+                        else if ((response.getStatusCode() == 403) && (!allowForbidden))
+                            robotRules = FORBID_ALL_RULES; // use forbid all
+                        else if (response.getStatusCode() >= 500) {
+                            robotRules = EMPTY_RULES;
+                            cacheRule = false;
                         } else {
-                            redir = new URL(redirection);
+                            robotRules = EMPTY_RULES; // use default rules
                         }
-                        response = http.getProtocolOutput(redir.toString(),
-                                Collections.<String, String[]> emptyMap()).get();
+                        if (cacheRule) {
+                            CACHE.put(cacheKey, robotRules); // cache rules for host
+                            // TODO revive:
+//                        if (redir != null
+//                                && !redir.getHost().equalsIgnoreCase(url.getHost())) {
+//                            // cache also for the redirected host
+//                            CACHE.put(getCacheKey(redir), robotRules);
+//                        }
+                        }
+                        ret.set(robotRules);
+
                     }
-                }
-
-                if (response.getStatusCode() == 200) // found rules: parse them
-                    robotRules = parseRules(
-                            url.toString(),
-                            response.getContent(),
-                            KeyValues.getValue("Content-Type",
-                                    response.getMetadata()), agentNames);
-
-                else if ((response.getStatusCode() == 403) && (!allowForbidden))
-                    robotRules = FORBID_ALL_RULES; // use forbid all
-                else if (response.getStatusCode() >= 500) {
-                    cacheRule = false;
-                    robotRules = EMPTY_RULES;
-                } else
-                    robotRules = EMPTY_RULES; // use default rules
-            } catch (Throwable t) {
-                LOG.info("Couldn't get robots.txt for {} : {}", url,
-                        t.toString());
-                cacheRule = false;
-                robotRules = EMPTY_RULES;
+                }, MoreExecutors.sameThreadExecutor());
+                return ret;
+            }catch (Exception e){
+                return Futures.immediateFailedFuture(e);
             }
-
-            if (cacheRule) {
-                CACHE.put(cacheKey, robotRules); // cache rules for host
-                if (redir != null
-                        && !redir.getHost().equalsIgnoreCase(url.getHost())) {
-                    // cache also for the redirected host
-                    CACHE.put(getCacheKey(redir), robotRules);
-                }
-            }
+        } else {
+            return Futures.immediateFuture(robotRules);
         }
-        return robotRules;
     }
 }

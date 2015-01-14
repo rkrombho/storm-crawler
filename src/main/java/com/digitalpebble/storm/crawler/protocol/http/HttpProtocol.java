@@ -389,6 +389,6 @@ public class HttpProtocol implements Protocol {
 
     @Override
     public ListenableFuture<BaseRobotRules> getRobotRules(String url) {
-        return Futures.immediateFuture(robots.getRobotRulesSet(this, url));
+        return robots.getRobotRulesSet(this, url);
     }
 }

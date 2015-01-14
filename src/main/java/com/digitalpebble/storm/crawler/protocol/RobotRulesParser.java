@@ -21,9 +21,13 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.StringTokenizer;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import javax.security.auth.login.Configuration;
 
+import org.apache.storm.guava.util.concurrent.Futures;
+import org.apache.storm.guava.util.concurrent.ListenableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +50,7 @@ public abstract class RobotRulesParser {
     public static final Logger LOG = LoggerFactory
             .getLogger(RobotRulesParser.class);
 
-    protected static final Hashtable<String, BaseRobotRules> CACHE = new Hashtable<String, BaseRobotRules>();
+    protected static final ConcurrentMap<String, BaseRobotRules> CACHE = new ConcurrentHashMap<String, BaseRobotRules>();
 
     /**
      * A {@link BaseRobotRules} object appropriate for use when the
@@ -136,16 +140,16 @@ public abstract class RobotRulesParser {
         return robotParser.parseContent(url, content, contentType, robotName);
     }
 
-    public BaseRobotRules getRobotRulesSet(Protocol protocol, String url) {
+    public ListenableFuture<BaseRobotRules> getRobotRulesSet(Protocol protocol, String url) {
         URL u = null;
         try {
             u = new URL(url);
         } catch (Exception e) {
-            return EMPTY_RULES;
+            return Futures.immediateFuture(EMPTY_RULES);
         }
         return getRobotRulesSet(protocol, u);
     }
 
-    public abstract BaseRobotRules getRobotRulesSet(Protocol protocol, URL url);
+    public abstract ListenableFuture<BaseRobotRules> getRobotRulesSet(Protocol protocol, URL url);
 
 }
