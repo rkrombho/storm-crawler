@@ -28,8 +28,8 @@ http.timeout: 10000
 http.robots.403.allow: true
 
 protocols: "http,https"
-http.protocol.implementation: "com.digitalpebble.storm.crawler.protocol.http.HttpProtocol"
-https.protocol.implementation: "com.digitalpebble.storm.crawler.protocol.http.HttpProtocol"
+http.protocol.implementation: "com.digitalpebble.storm.crawler.protocol.http.AsyncHttpProtocol"
+https.protocol.implementation: "com.digitalpebble.storm.crawler.protocol.http.AsyncHttpProtocol"
 
 stormcrawler.indexer.class: "com.digitalpebble.storm.crawler.bolt.PrinterBolt"
 

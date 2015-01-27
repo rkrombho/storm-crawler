@@ -18,6 +18,7 @@
 package com.digitalpebble.storm.crawler.bolt;
 
 import backtype.storm.Config;
+import backtype.storm.metric.api.MultiCountMetric;
 import backtype.storm.task.OutputCollector;
 import backtype.storm.task.TopologyContext;
 import backtype.storm.topology.OutputFieldsDeclarer;
@@ -43,6 +44,7 @@ import org.apache.storm.guava.collect.ImmutableMap;
 import org.apache.storm.guava.util.concurrent.ListenableFuture;
 import org.apache.storm.guava.util.concurrent.MoreExecutors;
 import org.apache.storm.guava.util.concurrent.RateLimiter;
+import org.apache.storm.guava.util.concurrent.ThreadFactoryBuilder;
 import org.elasticsearch.common.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,11 +57,10 @@ import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 /**
  * A multithreaded, queue-based fetcher adapted from Apache Nutch. Enforces the
@@ -76,6 +77,8 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
 
     private OutputCollector _collector;
 
+    private MultiCountMetric eventCounter;
+
     private ProtocolFactory protocolFactory;
 
     private int taskIndex = -1;
@@ -89,6 +92,8 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
     private MetadataTransfer metadataTransfer;
 
     private ScheduledExecutorService dispatcher;
+
+    private Executor workers;
 
     private ConcurrentMap<String, RateLimiter> lastFetched;
 
@@ -211,7 +216,7 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
                 .getMetaForOutlink(sourceMetadata);
 
         // TODO check that hasn't exceeded max number of redirections
-        emitAndAck(t, STATUS_STREAM, newUrl, metadata, Status.DISCOVERED);
+        emitAndAck(t, STATUS_STREAM, newUrl, new HashMap<String, String[]>(metadata), Status.DISCOVERED);
     }
 
     private void checkConfiguration() {
@@ -279,6 +284,8 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
                         Runtime.getRuntime().availableProcessors()
                 );
 
+        workers = Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat(this.getClass().getSimpleName() + "-worker-%s").build());
+
         Cache<String, RateLimiter> lastFetched = CacheBuilder.newBuilder().expireAfterAccess(maxCrawlDelay, TimeUnit.SECONDS).build();
         this.lastFetched = lastFetched.asMap();
 
@@ -303,6 +310,10 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
                 true);
 
         metadataTransfer = new MetadataTransfer(stormConf);
+
+        this.eventCounter = context.registerMetric("fetcher_counter",
+                new MultiCountMetric(), 10);
+
     }
 
     @Override
@@ -364,7 +375,8 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
                     BaseRobotRules rules = rulesFuture.get();
                     if (!rules.isAllowed(fit.u.toString())) {
                         LOG.info("Denied by robots.txt: {}", fit.url);
-                        emitAndAck(fit.t, STATUS_STREAM, fit.url, metadata, Status.ERROR);
+                        markCount("denied-by-robots");
+                        emitAndAck(fit.t, STATUS_STREAM, fit.url, new HashMap<String, String[]>(metadata), Status.ERROR);
                     } else {
                         if (rules.getCrawlDelay() > 0 && rules.getCrawlDelay() > maxCrawlDelay && maxCrawlDelay >= 0) {
                             LOG.info("Crawl-Delay for {} too long ({}), skipping",
@@ -386,10 +398,16 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
 
                     }
                 }
-            }, MoreExecutors.sameThreadExecutor());
+            }, workers);
 
         }
 
+    }
+
+    private void markCount(String counterName) {
+        synchronized (eventCounter) {
+            eventCounter.scope(counterName).incr();
+        }
     }
 
     private void emitAndAck(Tuple anchor, String streamID, Object... toEmit) {
@@ -416,7 +434,7 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
         @Override
         protected void doRun() throws Exception {
             RateLimiter limiter = lastFetched.get(fit.queueID);
-            if (!limiter.tryAcquire()) {
+            if (limiter != null && !limiter.tryAcquire()) {
                 // Cannot acquire permission, must wait
                 // 1 sec delay is to prevent CPU hogging
                 dispatcher.schedule(this, 1, TimeUnit.SECONDS);
@@ -458,9 +476,11 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
 
                         // if the status is OK emit on default stream
                         if (status.equals(Status.FETCHED)) {
-                            emitAndAck(fit.t, Utils.DEFAULT_STREAM_ID, fit.url, response.getContent(), metadata);
+                            emitAndAck(fit.t, Utils.DEFAULT_STREAM_ID, fit.url, response.getContent(), new HashMap<String, String[]>(metadata));
+                            markCount("fetched");
                         } else if (status.equals(Status.REDIRECTION)) {
                             emitAndAck(fit.t, STATUS_STREAM, fit.url, metadata, status);
+                            markCount("redirection");
                             // find the URL it redirects to
                             String[] redirection = response.getMetadata().get(
                                     HttpHeaders.LOCATION);
@@ -475,7 +495,7 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
                         // error
                         else {
                             emitAndAck(fit.t, STATUS_STREAM, fit.url, response.getMetadata(), status);
-
+                            markCount("error-http-status-" + response.getStatusCode());
                         }
                     } catch (Exception e) {
                         LOG.error("Exception while fetching {}", fit.url, e);
@@ -486,9 +506,10 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
 
                         // send to status stream
                         emitAndAck(fit.t, STATUS_STREAM, fit.url, metadata, Status.FETCH_ERROR);
+                        markCount("error-exception-" + e.getClass().getSimpleName());
                     }
                 }
-            }, MoreExecutors.sameThreadExecutor());
+            }, workers);
         }
     }
 }
