@@ -335,7 +335,9 @@ public class NonBlockingFetcherBolt extends BaseRichBolt {
         if (!input.contains("url") || Strings.isEmpty(input.getStringByField("url"))) {
             LOG.info("[Fetcher #{}] Missing field url in tuple {}", taskIndex, input);
             // ignore silently
-            _collector.ack(input);
+            synchronized (_collector) {
+                _collector.ack(input);
+            }
             return;
         }
 
