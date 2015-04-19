@@ -22,6 +22,7 @@
 		<metrics-core.version>3.0.0</metrics-core.version>
 		<librato-java.version>0.1.2</librato-java.version>
 		<tika-parsers.version>1.7</tika-parsers.version>
+		<storm-kafka.version>0.9.4</storm-kafka.version>
 	</properties>
 
 	<build>
@@ -87,6 +88,12 @@
 			<groupId>org.elasticsearch</groupId>
 			<artifactId>elasticsearch</artifactId>
 			<version>${elasticsearch.version}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.apache.storm</groupId>
+			<artifactId>storm-kafka</artifactId>
+			<version>${storm-kafka.version}</version>
 		</dependency>
 
 		<dependency>
